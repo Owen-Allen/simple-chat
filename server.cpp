@@ -13,8 +13,50 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <thread>
+#include <cstring>
+#include <atomic>
+
 
 using namespace std;
+
+const int bufsize = 1024;
+char sendBuffer[bufsize];
+char receiveBuffer[bufsize];
+std::atomic<bool> shouldTerminate(false);
+
+void receiveFromClient(int server) {
+    while (!shouldTerminate.load()) {
+        // Receiving message from client
+        recv(server, receiveBuffer, sizeof(receiveBuffer), 0);
+        std::cout << "Client: " << receiveBuffer << std::endl;
+
+        // Check for termination condition
+        if (strcmp(receiveBuffer, "#") == 0) {
+            shouldTerminate.store(true);
+            break;
+        }
+    }
+}
+
+
+void sendToClient(int server) {
+    while (!shouldTerminate.load()) {
+        // Sending message to client
+        std::cout << "Server: ";
+        std::cin.getline(sendBuffer, sizeof(sendBuffer));
+        send(server, sendBuffer, sizeof(sendBuffer), 0);
+
+        // Check for termination condition
+        if (strcmp(sendBuffer, "#") == 0) {
+            shouldTerminate.store(true);
+            break;
+        }
+    }
+}
+
+
+
 
 int main()
 {
@@ -181,21 +223,12 @@ int main()
     if (server < 0) 
         std::cout << "=> Error on accepting..." << endl;
 
-    while (server) {
-        // Receiving message from client
-        recv(server, buffer, sizeof(buffer), 0);
-        std::cout << "Client: " << buffer << std::endl;
+    std::thread receiveThread(receiveFromClient, server);
+    std::thread sendThread(sendToClient, server);
 
-        // Sending message to client
-        std::cout << "Server: ";
-        std::cin.getline(buffer, sizeof(buffer));
-        send(server, buffer, sizeof(buffer), 0);
+    receiveThread.join();
+    sendThread.join();
 
-        // Check for termination condition
-        if (strcmp(buffer, "#") == 0) {
-            break;
-        }
-    }
     close(server);
     close(client);
     return 0;
