@@ -17,17 +17,53 @@ char sendBuffer[bufsize];
 char receiveBuffer[bufsize];
 std::atomic<bool> shouldTerminate(false);
 
+// recv with a specified timeout
+int timedRecv(int socket, char *buffer, int size, int timeout_ms) {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(socket, &fds);
+
+    struct timeval timeout;
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+    int result = select(socket + 1, &fds, nullptr, nullptr, &timeout);
+
+    if (result > 0) {
+        return recv(socket, buffer, size, 0);
+    } else if (result == 0) {
+        // Timeout
+        return 0;
+    } else {
+        // Error
+        return -1;
+    }
+}
+
 void receiveFromServer(int client) {
     while (!shouldTerminate.load()) {
-        recv(client, receiveBuffer, sizeof(receiveBuffer), 0);
-        cout << "Server: " << receiveBuffer << endl;
 
-        if (receiveBuffer[0] == '#') {
-            shouldTerminate.store(true);
+        // use timedRecv so that the program isn't waiting on recv for too long while shouldTerminate is true
+        int bytesReceived = timedRecv(client, receiveBuffer, sizeof(receiveBuffer), 1000);
+
+        if (bytesReceived > 0) {
+            cout << "Server: " << receiveBuffer << endl;
+
+            if (receiveBuffer[0] == '#') {
+                shouldTerminate.store(true);
+                break;
+            }
+        } else if (bytesReceived == 0) {
+            // Handle the case when no data is received within the timeout
+            // You can perform other actions or continue waiting
+        } else {
+            // Handle the case when there's an error
+            // You can break or handle it based on your application's logic
             break;
         }
     }
 }
+
 
 void sendToServer(int client) {
     while (!shouldTerminate.load()) {
@@ -36,6 +72,7 @@ void sendToServer(int client) {
         send(client, sendBuffer, bufsize, 0);
 
         if (sendBuffer[0] == '#') {
+            cout << "Setting shouldTerminate to true!" << endl;
             shouldTerminate.store(true);
             break;
         }
@@ -78,6 +115,7 @@ int main() {
         receiveThread.join();
         sendThread.join();
     }
+    cout << "our work here is done" << endl;
 
     // Close the socket
     close(client);
